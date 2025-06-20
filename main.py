@@ -262,17 +262,17 @@ def check_license(
             license_key=data.license_key,
             active_system_id=None,
             ip_address=ip_address,
-            details="License key not found"
+            details="License key ไม่พบ ตรวจสอบมาจาก Server API"
         )
         db.add(log)
         db.commit()
-        return {"valid": False, "message": "License key ไม่ถูกต้อง"}
+        return {"valid": False, "message": "License key ไม่ถูกต้อง ตรวจสอบมาจาก Server API"}
 
     log = LicenseUsageLog(
         license_key=license_record.license_key,
         active_system_id=license_record.active_system_id,
         ip_address=ip_address,
-        details="License key valid"
+        details="License key ถูกต้อง ตรวจสอบมาจาก Server API"
     )
     db.add(log)
     db.commit()
@@ -283,7 +283,7 @@ def check_license(
 def license_info(license_key: str, db: Session = Depends(get_db)):
     license_record = db.query(LicenseKey).filter(LicenseKey.license_key == license_key).first()
     if not license_record:
-        raise HTTPException(status_code=404, detail="License key ไม่ถูกต้อง")
+        raise HTTPException(status_code=404, detail="License key ไม่ถูกต้อง ตรวจสอบมาจาก Server API")
 
     return {
         "license_key": license_record.license_key,
