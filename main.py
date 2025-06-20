@@ -7,9 +7,9 @@ from sqlalchemy.orm import sessionmaker, relationship
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 
-DATABASE_URL = "mysql://root:FHoYredMwBWdsbqGdwBpYdInlNeYnUCM@shortline.proxy.rlwy.net:30621/railway"  # เปลี่ยนเป็น mysql+pymysql://user:password@localhost/dbname ถ้าต้องการใช้ MySQL
+DATABASE_URL = "mysql://root:mfxZlMwcZEcGgKepqMxeRddLOWWifDwJ@crossover.proxy.rlwy.net:19484/railway"
 
-engine = create_engine(DATABASE_URL) 
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
@@ -27,16 +27,16 @@ app.add_middleware(
 class ActiveSystem(Base):
     __tablename__ = "active_system"
     id = Column(Integer, primary_key=True, index=True)
-    system_name = Column(String, unique=True, nullable=False)
+    system_name = Column(String(255), unique=True, nullable=False)
 
 class LicenseKey(Base):
     __tablename__ = "license_key"
     id = Column(Integer, primary_key=True, index=True)
-    license_key = Column(String, unique=True, nullable=False)
+    license_key = Column(String(255), unique=True, nullable=False)
     active_system_id = Column(Integer, ForeignKey("active_system.id"), nullable=True)
     create_at = Column(TIMESTAMP, server_default=func.now())
 
-    active_system = relationship("ActiveSystem")  # join object
+    active_system = relationship("ActiveSystem")
 
 Base.metadata.create_all(bind=engine)
 
