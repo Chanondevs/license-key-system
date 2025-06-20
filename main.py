@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 
-DATABASE_URL = "mysql://root:mfxZlMwcZEcGgKepqMxeRddLOWWifDwJ@crossover.proxy.rlwy.net:19484/railway"
+DATABASE_URL = "mysql+pymysql://root:mfxZlMwcZEcGgKepqMxeRddLOWWifDwJ@crossover.proxy.rlwy.net:19484/railway"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
