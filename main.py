@@ -80,10 +80,6 @@ class UserCreate(BaseModel):
     username: str
     password: str
 
-class UserLogin(BaseModel):
-    username: str
-    password: str
-
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -160,7 +156,6 @@ def get_db():
 
 # ------------------- API Routes -------------------
 
-# ลงทะเบียน user
 @app.post("/register")
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
     existing_user = get_user(db, user.username)
@@ -173,7 +168,6 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return {"message": "สมัครสมาชิกสำเร็จ"}
 
-# รับ token สำหรับ login
 @app.post("/token", response_model=Token)
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = authenticate_user(db, form_data.username, form_data.password)
@@ -185,12 +179,10 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-# ตัวอย่าง API ที่ต้อง login ถึงเข้าถึงได้
 @app.get("/users/me")
 async def read_users_me(current_user: User = Depends(get_current_user)):
     return {"username": current_user.username}
 
-# ระบบจัดการ Active System
 @app.post("/active_system")
 def create_active_system(
     data: ActiveSystemCreate,
@@ -217,7 +209,6 @@ def list_active_systems(
     systems = db.query(ActiveSystem).all()
     return [{"id": s.id, "system_name": s.system_name} for s in systems]
 
-# ระบบสร้าง License Key
 @app.post("/generate", response_model=LicenseResponse)
 def generate_license(
     data: LicenseCreate,
