@@ -241,7 +241,6 @@ def list_licenses(
         "create_at": l.create_at
     } for l in licenses]
 
-# API สำหรับเช็ค license key และบันทึก log (ไม่ต้องใช้ token)
 @app.post("/check_license", response_model=LicenseCheckResponse)
 def check_license(
     data: LicenseCheckRequest = Body(...),
@@ -266,6 +265,7 @@ def check_license(
         )
         db.add(log)
         db.commit()
+        print(f"[Server API] Log saved: license_key={data.license_key}, valid=False, ip={ip_address}")
         return {"valid": False, "message": "License key ไม่ถูกต้อง ตรวจสอบมาจาก Server API"}
 
     log = LicenseUsageLog(
@@ -276,8 +276,10 @@ def check_license(
     )
     db.add(log)
     db.commit()
+    print(f"[Server API] Log saved: license_key={license_record.license_key}, valid=True, ip={ip_address}")
 
     return {"valid": True, "message": "License key ถูกต้อง"}
+
 
 @app.get("/license_info/{license_key}")
 def license_info(license_key: str, db: Session = Depends(get_db)):
