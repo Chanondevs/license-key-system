@@ -35,7 +35,7 @@ app.add_middleware(
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
-SECRET_KEY = "your_secret_key_here"  # เปลี่ยนเป็น key ของคุณเอง
+SECRET_KEY = "MCCODETEAM"  # เปลี่ยนเป็น key ของคุณเอง
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 วัน
 
