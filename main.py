@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func, distinct
 import uuid
 
 # Database URL (แก้ตามของคุณ)
@@ -100,6 +101,9 @@ class LicenseCheckRequest(BaseModel):
 class LicenseCheckResponse(BaseModel):
     valid: bool
     message: str
+
+class LicenseUpdateIPLimit(BaseModel):
+    ip_limit: int | None  # อนุญาตให้ตั้งค่าเป็น None ได้
 
 # ------------------- Utility Functions -------------------
 def get_password_hash(password: str) -> str:
@@ -254,6 +258,7 @@ def check_license(
         if xff:
             ip_address = xff.split(",")[0].strip()
 
+    # หา license
     license_record = db.query(LicenseKey).filter(LicenseKey.license_key == data.license_key).first()
 
     if not license_record:
@@ -261,13 +266,36 @@ def check_license(
             license_key=data.license_key,
             active_system_id=None,
             ip_address=ip_address,
-            details="License key ไม่พบ ตรวจสอบมาจาก Server API"
+            details="License key ไม่ถูกต้อง ตรวจสอบมาจาก Server API"
         )
         db.add(log)
         db.commit()
-        print(f"[Server API] Log saved: license_key={data.license_key}, valid=False, ip={ip_address}")
-        return {"valid": False, "message": "License key ไม่ถูกต้อง ตรวจสอบมาจาก Server API"}
+        return {"valid": False, "message": "License key ไม่ถูกต้อง"}
 
+    # ดึง IP ทั้งหมดที่เคยใช้กับ license นี้
+    existing_ips = db.query(distinct(LicenseUsageLog.ip_address)).filter(
+        LicenseUsageLog.license_key == license_record.license_key,
+        LicenseUsageLog.active_system_id == license_record.active_system_id,
+        LicenseUsageLog.ip_address != None
+    ).all()
+    unique_ips = {ip[0] for ip in existing_ips}
+
+    # ตรวจสอบ limit
+    ip_limit = license_record.ip_limit if license_record.ip_limit is not None else 3
+
+    # ip ซ้ำถือว่าไม่เพิ่ม count
+    if ip_address not in unique_ips and len(unique_ips) >= ip_limit:
+        log = LicenseUsageLog(
+            license_key=license_record.license_key,
+            active_system_id=license_record.active_system_id,
+            ip_address=ip_address,
+            details=f"License key ถูกต้อง ตรวจสอบมาจาก Server Plugin แต่ถึงขีดจำกัด {ip_limit} IP แล้ว"
+        )
+        db.add(log)
+        db.commit()
+        return {"valid": False, "message": f"License นี้ถูกใช้ครบ {ip_limit} IP แล้ว ไม่สามารถใช้งานได้"}
+
+    # บันทึก log ว่าเช็ค license ถูกต้อง จาก Server Plugin
     log = LicenseUsageLog(
         license_key=license_record.license_key,
         active_system_id=license_record.active_system_id,
@@ -276,10 +304,22 @@ def check_license(
     )
     db.add(log)
     db.commit()
-    print(f"[Server API] Log saved: license_key={license_record.license_key}, valid=True, ip={ip_address}")
 
     return {"valid": True, "message": "License key ถูกต้อง"}
 
+@app.patch("/license_key/{license_key}")
+def update_ip_limit(
+    license_key: str,
+    update: LicenseUpdateIPLimit,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    license_obj = db.query(LicenseKey).filter(LicenseKey.license_key == license_key).first()
+    if not license_obj:
+        raise HTTPException(status_code=404, detail="License key not found")
+    license_obj.ip_limit = update.ip_limit
+    db.commit()
+    return {"message": "Updated ip_limit", "license_key": license_key, "ip_limit": license_obj.ip_limit}
 
 @app.get("/license_info/{license_key}")
 def license_info(license_key: str, db: Session = Depends(get_db)):
