@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker, relationship
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 
-DATABASE_URL = "mysql+pymysql://root:@localhost/licensekeytest"  # เปลี่ยนเป็น mysql+pymysql://user:password@localhost/dbname ถ้าต้องการใช้ MySQL
+DATABASE_URL = "mysql://root:FHoYredMwBWdsbqGdwBpYdInlNeYnUCM@shortline.proxy.rlwy.net:30621/railway"  # เปลี่ยนเป็น mysql+pymysql://user:password@localhost/dbname ถ้าต้องการใช้ MySQL
 
 engine = create_engine(DATABASE_URL) 
 SessionLocal = sessionmaker(bind=engine)
