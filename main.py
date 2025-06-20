@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi import FastAPI, HTTPException, status, Depends, Body, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, TIMESTAMP, func
@@ -62,6 +62,17 @@ class LicenseKey(Base):
 
     active_system = relationship("ActiveSystem")
 
+class LicenseUsageLog(Base):
+    __tablename__ = "license_usage_log"
+    id = Column(Integer, primary_key=True, index=True)
+    license_key = Column(String(255), nullable=False, index=True)
+    active_system_id = Column(Integer, ForeignKey("active_system.id"), nullable=True)
+    used_at = Column(TIMESTAMP, server_default=func.now())
+    ip_address = Column(String(45), nullable=True)  # รองรับ IPv6
+    details = Column(String, nullable=True)
+
+    active_system = relationship("ActiveSystem")
+
 Base.metadata.create_all(bind=engine)
 
 # ------------------- Schemas -------------------
@@ -86,6 +97,13 @@ class LicenseCreate(BaseModel):
 class LicenseResponse(BaseModel):
     license_key: str
     active_system: str
+
+class LicenseCheckRequest(BaseModel):
+    license_key: str
+
+class LicenseCheckResponse(BaseModel):
+    valid: bool
+    message: str
 
 # ------------------- Utility Functions -------------------
 def get_password_hash(password: str) -> str:
@@ -132,40 +150,40 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     return user
 
+# Dependency สำหรับดึง db session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 # ------------------- API Routes -------------------
 
 # ลงทะเบียน user
 @app.post("/register")
-def register_user(user: UserCreate):
-    db = SessionLocal()
-    try:
-        existing_user = get_user(db, user.username)
-        if existing_user:
-            return JSONResponse(status_code=400, content={"message": "Username นี้ถูกใช้แล้ว"})
-        hashed_password = get_password_hash(user.password)
-        new_user = User(username=user.username, hashed_password=hashed_password)
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-        return {"message": "สมัครสมาชิกสำเร็จ"}
-    finally:
-        db.close()
+def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    existing_user = get_user(db, user.username)
+    if existing_user:
+        return JSONResponse(status_code=400, content={"message": "Username นี้ถูกใช้แล้ว"})
+    hashed_password = get_password_hash(user.password)
+    new_user = User(username=user.username, hashed_password=hashed_password)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return {"message": "สมัครสมาชิกสำเร็จ"}
 
 # รับ token สำหรับ login
 @app.post("/token", response_model=Token)
-def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    db = SessionLocal()
-    try:
-        user = authenticate_user(db, form_data.username, form_data.password)
-        if not user:
-            raise HTTPException(status_code=401, detail="Username หรือ รหัสผ่านไม่ถูกต้อง")
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": user.username}, expires_delta=access_token_expires
-        )
-        return {"access_token": access_token, "token_type": "bearer"}
-    finally:
-        db.close()
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Username หรือ รหัสผ่านไม่ถูกต้อง")
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
 # ตัวอย่าง API ที่ต้อง login ถึงเข้าถึงได้
 @app.get("/users/me")
@@ -174,62 +192,98 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 # ระบบจัดการ Active System
 @app.post("/active_system")
-def create_active_system(data: ActiveSystemCreate, current_user: User = Depends(get_current_user)):
-    db = SessionLocal()
-    try:
-        existing = db.query(ActiveSystem).filter(ActiveSystem.system_name == data.system_name).first()
-        if existing:
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content={"message": "Active system นี้มีการลงทะเบียนแล้ว"}
-            )
-        new_system = ActiveSystem(system_name=data.system_name)
-        db.add(new_system)
-        db.commit()
-        db.refresh(new_system)
-        return {"system_name": new_system.system_name}
-    finally:
-        db.close()
+def create_active_system(
+    data: ActiveSystemCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    existing = db.query(ActiveSystem).filter(ActiveSystem.system_name == data.system_name).first()
+    if existing:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"message": "Active system นี้มีการลงทะเบียนแล้ว"}
+        )
+    new_system = ActiveSystem(system_name=data.system_name)
+    db.add(new_system)
+    db.commit()
+    db.refresh(new_system)
+    return {"system_name": new_system.system_name}
 
 @app.get("/active_system")
-def list_active_systems(current_user: User = Depends(get_current_user)):
-    db = SessionLocal()
-    try:
-        systems = db.query(ActiveSystem).all()
-        return [{"id": s.id, "system_name": s.system_name} for s in systems]
-    finally:
-        db.close()
+def list_active_systems(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    systems = db.query(ActiveSystem).all()
+    return [{"id": s.id, "system_name": s.system_name} for s in systems]
 
 # ระบบสร้าง License Key
 @app.post("/generate", response_model=LicenseResponse)
-def generate_license(data: LicenseCreate, current_user: User = Depends(get_current_user)):
-    db = SessionLocal()
-    try:
-        active_system = db.query(ActiveSystem).filter(ActiveSystem.id == data.active_system_id).first()
-        if not active_system:
-            raise HTTPException(status_code=404, detail="Active system not found.")
+def generate_license(
+    data: LicenseCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    active_system = db.query(ActiveSystem).filter(ActiveSystem.id == data.active_system_id).first()
+    if not active_system:
+        raise HTTPException(status_code=404, detail="Active system not found.")
 
-        license_key = str(uuid.uuid4())
-        new_license = LicenseKey(license_key=license_key, active_system_id=active_system.id)
-        db.add(new_license)
-        db.commit()
-        db.refresh(new_license)
-        return {
-            "license_key": new_license.license_key,
-            "active_system": active_system.system_name
-        }
-    finally:
-        db.close()
+    license_key = str(uuid.uuid4())
+    new_license = LicenseKey(license_key=license_key, active_system_id=active_system.id)
+    db.add(new_license)
+    db.commit()
+    db.refresh(new_license)
+    return {
+        "license_key": new_license.license_key,
+        "active_system": active_system.system_name
+    }
 
 @app.get("/licenses")
-def list_licenses(current_user: User = Depends(get_current_user)):
-    db = SessionLocal()
-    try:
-        licenses = db.query(LicenseKey).all()
-        return [{
-            "license_key": l.license_key,
-            "active_system": l.active_system.system_name if l.active_system else None,
-            "create_at": l.create_at
-        } for l in licenses]
-    finally:
-        db.close()
+def list_licenses(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    licenses = db.query(LicenseKey).all()
+    return [{
+        "license_key": l.license_key,
+        "active_system": l.active_system.system_name if l.active_system else None,
+        "create_at": l.create_at
+    } for l in licenses]
+
+# API สำหรับเช็ค license key และบันทึก log (ไม่ต้องใช้ token)
+@app.post("/check_license", response_model=LicenseCheckResponse)
+def check_license(
+    data: LicenseCheckRequest = Body(...),
+    request: Request = None,
+    db: Session = Depends(get_db),
+):
+    ip_address = None
+    if request:
+        ip_address = request.client.host
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            ip_address = xff.split(",")[0].strip()
+
+    license_record = db.query(LicenseKey).filter(LicenseKey.license_key == data.license_key).first()
+
+    if not license_record:
+        log = LicenseUsageLog(
+            license_key=data.license_key,
+            active_system_id=None,
+            ip_address=ip_address,
+            details="License key not found"
+        )
+        db.add(log)
+        db.commit()
+        return {"valid": False, "message": "License key ไม่ถูกต้อง"}
+
+    log = LicenseUsageLog(
+        license_key=license_record.license_key,
+        active_system_id=license_record.active_system_id,
+        ip_address=ip_address,
+        details="License key valid"
+    )
+    db.add(log)
+    db.commit()
+
+    return {"valid": True, "message": "License key ถูกต้อง"}
