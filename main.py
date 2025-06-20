@@ -11,6 +11,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, distinct
 import uuid
+from typing import Optional
 
 # Database URL (แก้ตามของคุณ)
 DATABASE_URL = "mysql+pymysql://root:mfxZlMwcZEcGgKepqMxeRddLOWWifDwJ@crossover.proxy.rlwy.net:19484/railway"
@@ -59,6 +60,7 @@ class LicenseKey(Base):
     id = Column(Integer, primary_key=True, index=True)
     license_key = Column(String(255), unique=True, nullable=False)
     active_system_id = Column(Integer, ForeignKey("active_system.id"), nullable=True)
+    ip_limit = Column(Integer, nullable=True)
     create_at = Column(TIMESTAMP, server_default=func.now())
 
     active_system = relationship("ActiveSystem")
@@ -103,7 +105,7 @@ class LicenseCheckResponse(BaseModel):
     message: str
 
 class LicenseUpdateIPLimit(BaseModel):
-    ip_limit: int | None  # อนุญาตให้ตั้งค่าเป็น None ได้
+    ip_limit: Optional[int] = None
 
 # ------------------- Utility Functions -------------------
 def get_password_hash(password: str) -> str:
@@ -317,9 +319,11 @@ def update_ip_limit(
     license_obj = db.query(LicenseKey).filter(LicenseKey.license_key == license_key).first()
     if not license_obj:
         raise HTTPException(status_code=404, detail="License key not found")
+    
     license_obj.ip_limit = update.ip_limit
     db.commit()
-    return {"message": "Updated ip_limit", "license_key": license_key, "ip_limit": license_obj.ip_limit}
+    db.refresh(license_obj)  # ⭐ สำคัญ เพื่อ sync ข้อมูลจริง
+    return {"message": "Updated ip_limit", "license_key": license_obj.license_key, "ip_limit": license_obj.ip_limit}
 
 @app.get("/license_info/{license_key}")
 def license_info(license_key: str, db: Session = Depends(get_db)):
