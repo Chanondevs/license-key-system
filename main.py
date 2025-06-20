@@ -278,3 +278,16 @@ def check_license(
     db.commit()
 
     return {"valid": True, "message": "License key ถูกต้อง"}
+
+@app.get("/license_info/{license_key}")
+def license_info(license_key: str, db: Session = Depends(get_db)):
+    license_record = db.query(LicenseKey).filter(LicenseKey.license_key == license_key).first()
+    if not license_record:
+        raise HTTPException(status_code=404, detail="License key ไม่ถูกต้อง")
+
+    return {
+        "license_key": license_record.license_key,
+        "active_system_id": license_record.active_system_id,
+        "active_system_name": license_record.active_system.system_name if license_record.active_system else None,
+        "create_at": license_record.create_at,
+    }
