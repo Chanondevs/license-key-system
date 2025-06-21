@@ -244,7 +244,8 @@ def list_licenses(
     return [{
         "license_key": l.license_key,
         "active_system": l.active_system.system_name if l.active_system else None,
-        "create_at": l.create_at
+        "create_at": l.create_at,
+        "ip_limit": l.ip_limit  # เพิ่มตรงนี้
     } for l in licenses]
 
 @app.post("/check_license", response_model=LicenseCheckResponse)
