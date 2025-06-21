@@ -261,6 +261,8 @@ def check_license(
         if xff:
             ip_address = xff.split(",")[0].strip()
 
+    client_type = request.headers.get("X-Client-Type", "").lower() if request else None
+
     # หา license
     license_record = db.query(LicenseKey).filter(LicenseKey.license_key == data.license_key).first()
 
@@ -275,40 +277,55 @@ def check_license(
         db.commit()
         return {"valid": False, "message": "License key ไม่ถูกต้อง"}
 
-    # ดึง IP ทั้งหมดที่เคยใช้กับ license นี้
+    # ดึง IP ทั้งหมดที่เคยใช้กับ license นี้ (ที่บันทึกว่าเป็นจาก Plugin เท่านั้น)
     existing_ips = db.query(distinct(LicenseUsageLog.ip_address)).filter(
         LicenseUsageLog.license_key == license_record.license_key,
         LicenseUsageLog.active_system_id == license_record.active_system_id,
-        LicenseUsageLog.ip_address != None
+        LicenseUsageLog.ip_address != None,
+        LicenseUsageLog.details == "License key ถูกต้อง ตรวจสอบมาจาก Server Plugin"
     ).all()
     unique_ips = {ip[0] for ip in existing_ips}
 
-    # ตรวจสอบ limit
-    ip_limit = license_record.ip_limit if license_record.ip_limit is not None else 3
+    # ตรวจสอบ ip_limit
+    if license_record.ip_limit is None or license_record.ip_limit == 0:
+        ip_limit = None  # ไม่จำกัด
+    else:
+        ip_limit = license_record.ip_limit
 
-    # ip ซ้ำถือว่าไม่เพิ่ม count
-    if ip_address not in unique_ips and len(unique_ips) >= ip_limit:
-        log = LicenseUsageLog(
-            license_key=license_record.license_key,
-            active_system_id=license_record.active_system_id,
-            ip_address=ip_address,
-            details=f"License key ถูกต้อง ตรวจสอบมาจาก Server Plugin แต่ถึงขีดจำกัด {ip_limit} IP แล้ว"
-        )
-        db.add(log)
-        db.commit()
-        return {"valid": False, "message": f"License นี้ถูกใช้ครบ {ip_limit} IP แล้ว ไม่สามารถใช้งานได้"}
+    if ip_address is None:
+        return {"valid": False, "message": "ไม่พบ IP ของผู้ใช้งาน"}
 
-    # บันทึก log ว่าเช็ค license ถูกต้อง จาก Server Plugin
+    # ถ้า ip_limit ไม่จำกัด (None) ก็ข้ามการเช็คขีดจำกัด
+    if ip_limit is not None:
+        if ip_address not in unique_ips and len(unique_ips) >= ip_limit:
+            log = LicenseUsageLog(
+                license_key=license_record.license_key,
+                active_system_id=license_record.active_system_id,
+                ip_address=ip_address,
+                details=f"License key ถูกต้อง ตรวจสอบมาจาก Server Plugin แต่ถึงขีดจำกัด {ip_limit} IP แล้ว"
+            )
+            db.add(log)
+            db.commit()
+            return {"valid": False, "message": f"License นี้ถูกใช้ครบ {ip_limit} IP แล้ว ไม่สามารถใช้งานได้"}
+
+    # บันทึก log ว่าเช็ค license ถูกต้อง จาก Server Plugin หรือ API ตาม header
+    if client_type == "plugin":
+        details_msg = "License key ถูกต้อง ตรวจสอบมาจาก Server Plugin"
+    else:
+        details_msg = "License key ถูกต้อง ตรวจสอบมาจาก Server API"
+
     log = LicenseUsageLog(
         license_key=license_record.license_key,
         active_system_id=license_record.active_system_id,
         ip_address=ip_address,
-        details="License key ถูกต้อง ตรวจสอบมาจาก Server API"
+        details=details_msg
     )
     db.add(log)
     db.commit()
 
     return {"valid": True, "message": "License key ถูกต้อง"}
+
+
 
 @app.patch("/license_key/{license_key}")
 def update_ip_limit(
@@ -323,7 +340,7 @@ def update_ip_limit(
     
     license_obj.ip_limit = update.ip_limit
     db.commit()
-    db.refresh(license_obj)  # ⭐ สำคัญ เพื่อ sync ข้อมูลจริง
+    db.refresh(license_obj)
     return {"message": "Updated ip_limit", "license_key": license_obj.license_key, "ip_limit": license_obj.ip_limit}
 
 @app.get("/license_info/{license_key}")
