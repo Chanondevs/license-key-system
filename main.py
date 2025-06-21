@@ -248,7 +248,7 @@ def list_licenses(
         "ip_limit": l.ip_limit  # เพิ่มตรงนี้
     } for l in licenses]
 
-@router.post("/check_license", response_model=LicenseCheckResponse)
+@app.post("/check_license", response_model=LicenseCheckResponse)
 def check_license(
     data: LicenseCheckRequest = Body(...),
     request: Request = None,
